@@ -85,6 +85,8 @@ namespace Reso360Spout2Renderer
         private GameObject? _cameraRoot;
         // Spout 初期化を遅延させる: D3D デバイスが完全に準備されてから呼ぶ
         private int _initDelayFrames = 1000;
+        // ホストからのコンフィグ変更を検出するためのバージョン追跡
+        private int _lastConfigVersion = -1;
 
         void Start()
         {
@@ -96,20 +98,16 @@ namespace Reso360Spout2Renderer
             CreateCamera();
             LoadShaders();  // cubeComponent にシェーダーをセット
 
-            cubeComponent!.CubemapSize    = (int)RendererPlugin.CUBEMAP_SIZE.Value;
-            cubeComponent.ProjectionType  = RendererPlugin.PROJECTION_TYPE.Value;
-            cubeComponent.RenderInStereo  = RendererPlugin.RENDER_IN_STEREO.Value;
+            // 初期設定を適用 (SettingChanged を経由しない直接適用 — D3D 未準備のため Spout 系は後回し)
+            ApplyInitialConfig();
 
-            CameraComponent!.nearClipPlane = RendererPlugin.NEAR_CLIP.Value;
-            CameraComponent.farClipPlane   = RendererPlugin.FAR_CLIP.Value;
-            CameraComponent.cullingMask   &= ~(1 << 28);
-            CameraComponent.cullingMask &= ~(1 << 29);
-            CameraComponent.cullingMask &= ~(1 << 31);
-            
+            CameraComponent!.cullingMask &= ~(1 << 28);
+            CameraComponent.cullingMask  &= ~(1 << 29);
+            CameraComponent.cullingMask  &= ~(1 << 31);
 
             StartCoroutine(PostRenderLoop());
 
-            // Spout の InitSpout() は Update() で遅延呼び出しする
+            // Spout の InitSpout() は LateUpdate() で遅延呼び出しする
             // (Start() 時点では D3D デバイスが Spout に未登録のため NULL device クラッシュが発生する)
         }
 
@@ -132,9 +130,20 @@ namespace Reso360Spout2Renderer
                     return;
                 }
 
+                // ---- D3D 準備完了後: ホストからのコンフィグ変更を検出して適用 ----
+                if (_sharedMem.IsOpen)
+                {
+                    int ver = _sharedMem.ReadConfigVersion();
+                    if (ver != _lastConfigVersion && ver != 0)
+                    {
+                        _lastConfigVersion = ver;
+                        ApplyConfigFromHost(_sharedMem.ReadConfig());
+                    }
+                }
+
                 // ホストプロセスからカメラ状態を受け取る
-                transform.position = _sharedMem.ReadPosition();
-                transform.rotation = _sharedMem.ReadRotation();
+                transform.position   = _sharedMem.ReadPosition();
+                transform.rotation   = _sharedMem.ReadRotation();
                 transform.localScale = _sharedMem.ReadScale();
 
             }
@@ -146,6 +155,64 @@ namespace Reso360Spout2Renderer
 
         void OnDestroy() => _sharedMem.Dispose();
 
+        /// <summary>
+        /// 起動時の直接適用: SettingChanged を経由せずコンポーネントに直接セットする。
+        /// D3D デバイス未準備のため Spout 系 (CreateSender) は呼ばない。
+        /// 共有メモリに有効なコンフィグがあればそちらを優先する。
+        /// </summary>
+        private void ApplyInitialConfig()
+        {
+            RendererConfig cfg = RendererConfig.Default;
+            if (_sharedMem.IsOpen)
+            {
+                int ver = _sharedMem.ReadConfigVersion();
+                if (ver != 0)
+                {
+                    _lastConfigVersion = ver;
+                    cfg = _sharedMem.ReadConfig();
+                    Debug.Log($"[Reso360Spout2] Initial config from host (version={ver}): Projection={cfg.ProjectionType}, CubemapSize={cfg.CubemapSize}");
+                }
+            }
+
+            // ConfigEntry も更新しておくことで BepInEx config ファイルに反映される
+            RendererPlugin.SPOUT_ENABLE    .Value = cfg.SpoutEnable;
+            RendererPlugin.PROJECTION_TYPE .Value = cfg.ProjectionType;
+            RendererPlugin.CUBEMAP_SIZE    .Value = (RendererPlugin.CubeMapSize)cfg.CubemapSize;
+            RendererPlugin.OUTPUT_WIDTH    .Value = cfg.OutputWidth;
+            RendererPlugin.OUTPUT_HEIGHT   .Value = cfg.OutputHeight;
+            RendererPlugin.RENDER_IN_STEREO.Value = cfg.RenderInStereo;
+            RendererPlugin.NEAR_CLIP       .Value = cfg.NearClip;
+            RendererPlugin.FAR_CLIP        .Value = cfg.FarClip;
+            RendererPlugin.HIDE_LOCAL      .Value = cfg.HideLocal;
+
+            // Spout 系を除くコンポーネントへ直接適用 (SettingChanged は既に上で発火しているが念のため)
+            cubeComponent!.CubemapSize   = cfg.CubemapSize;
+            cubeComponent.ProjectionType = cfg.ProjectionType;
+            cubeComponent.RenderInStereo = cfg.RenderInStereo;
+            CameraComponent!.nearClipPlane = cfg.NearClip;
+            CameraComponent.farClipPlane   = cfg.FarClip;
+            ApplyHideLocal(cfg.HideLocal);
+        }
+
+        /// <summary>
+        /// D3D 準備完了後: ConfigEntry.Value 経由でセット → SettingChanged ハンドラが各コンポーネントに適用する。
+        /// SPOUT_ENABLE 変更時は UpdateSpoutState() が呼ばれる (D3D 準備済みなので安全)。
+        /// </summary>
+        private void ApplyConfigFromHost(RendererConfig cfg)
+        {
+            Debug.Log($"[Reso360Spout2] Config updated from host: SpoutEnable={cfg.SpoutEnable}, Projection={cfg.ProjectionType}, CubemapSize={cfg.CubemapSize}, {cfg.OutputWidth}x{cfg.OutputHeight}");
+
+            RendererPlugin.SPOUT_ENABLE    .Value = cfg.SpoutEnable;
+            RendererPlugin.PROJECTION_TYPE .Value = cfg.ProjectionType;
+            RendererPlugin.CUBEMAP_SIZE    .Value = (RendererPlugin.CubeMapSize)cfg.CubemapSize;
+            RendererPlugin.OUTPUT_WIDTH    .Value = cfg.OutputWidth;
+            RendererPlugin.OUTPUT_HEIGHT   .Value = cfg.OutputHeight;
+            RendererPlugin.RENDER_IN_STEREO.Value = cfg.RenderInStereo;
+            RendererPlugin.NEAR_CLIP       .Value = cfg.NearClip;
+            RendererPlugin.FAR_CLIP        .Value = cfg.FarClip;
+            RendererPlugin.HIDE_LOCAL      .Value = cfg.HideLocal;
+        }
+
         IEnumerator PostRenderLoop()
         {
             while (true)
@@ -156,10 +223,6 @@ namespace Reso360Spout2Renderer
                 {
                     cubeComponent!.Rendering();
                     SendToSpout();
-                }
-                else
-                {
-                    Debug.Log("[Reso360Spout2] Waiting for SourceTexture to be created...");
                 }
             }
         }
@@ -245,10 +308,12 @@ namespace Reso360Spout2Renderer
             RenderTexture.ReleaseTemporary(tempRt);
         }
 
-        public void ApplyHideLocal()
+        public void ApplyHideLocal() => ApplyHideLocal(RendererPlugin.HIDE_LOCAL.Value);
+
+        public void ApplyHideLocal(bool hideLocal)
         {
             if (CameraComponent == null) return;
-            if (RendererPlugin.HIDE_LOCAL.Value)
+            if (hideLocal)
             {
                 CameraComponent.cullingMask &= ~((1 << 29) | (1 << 30) | (1 << 31));
                 CameraComponent.cullingMask &= ~(1 << 28);

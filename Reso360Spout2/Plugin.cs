@@ -22,14 +22,42 @@ public class Reso360Plugin : BasePlugin
 {
     internal static new ManualLogSource Log = null!;
 
+    // ---- ホスト設定 -----------------------------------------------------------
     public static ConfigEntry<string> CAMERA_SLOT_NAME = null!;
 
-    // 共有メモリ: 10 floats × 4 bytes = 40 bytes
-    //   [0-11]  position (x, y, z)
-    //   [12-27] rotation (x, y, z, w)
-    //   [28-39] scale    (x, y, z)
+    // ---- レンダラー設定 (BepisModSettings 経由でゲーム内から変更可能) ----------
+    public static ConfigEntry<bool>           R_SPOUT_ENABLE     = null!;
+    public static ConfigEntry<RendererProjectionType> R_PROJECTION_TYPE  = null!;
+    public static ConfigEntry<RendererCubeMapSize>    R_CUBEMAP_SIZE     = null!;
+    public static ConfigEntry<int>            R_OUTPUT_WIDTH     = null!;
+    public static ConfigEntry<int>            R_OUTPUT_HEIGHT    = null!;
+    public static ConfigEntry<bool>           R_RENDER_IN_STEREO = null!;
+    public static ConfigEntry<float>          R_NEAR_CLIP        = null!;
+    public static ConfigEntry<float>          R_FAR_CLIP         = null!;
+    public static ConfigEntry<bool>           R_HIDE_LOCAL       = null!;
+
+    // Renderer 側の enum と値が一致するよう同じ数値を使う
+    public enum RendererProjectionType { Equirectangular_360 = 0, Equirectangular_180 = 1, FishEye_Circumference = 2, FishEye_Diagonal = 3 }
+    public enum RendererCubeMapSize    { Low = 512, Mid = 1024, High = 2048, Ultra = 3072 }
+
+    // ---- 共有メモリ -----------------------------------------------------------
+    // カメラ状態 (40 bytes) + コンフィグチャンネル (40 bytes) = 80 bytes
+    //
+    // [0-11]  position (x, y, z)           ← float × 3
+    // [12-27] rotation (x, y, z, w)        ← float × 4
+    // [28-39] scale    (x, y, z)           ← float × 3
+    // [40-43] config version (int)         ← インクリメントで Renderer に変更を通知
+    // [44-47] SPOUT_ENABLE     (int 0/1)
+    // [48-51] PROJECTION_TYPE  (int)
+    // [52-55] CUBEMAP_SIZE     (int)
+    // [56-59] OUTPUT_WIDTH     (int)
+    // [60-63] OUTPUT_HEIGHT    (int)
+    // [64-67] RENDER_IN_STEREO (int 0/1)
+    // [68-71] NEAR_CLIP        (float)
+    // [72-75] FAR_CLIP         (float)
+    // [76-79] HIDE_LOCAL       (int 0/1)
     public const string SHARED_MEM_NAME = "Reso360Spout2_Camera";
-    private const int   SHARED_MEM_SIZE = 40;
+    private const int   SHARED_MEM_SIZE = 80;
 
     private static MemoryMappedFile?         _sharedMem;
     private static MemoryMappedViewAccessor? _sharedMemView;
@@ -38,7 +66,7 @@ public class Reso360Plugin : BasePlugin
     {
         Log = base.Log;
 
-        // 共有メモリ作成（レンダラーより先に起動するため Create）
+        // 共有メモリ作成（レンダラーより先に起動するため CreateOrOpen）
         try
         {
             _sharedMem     = MemoryMappedFile.CreateOrOpen(SHARED_MEM_NAME, SHARED_MEM_SIZE);
@@ -50,8 +78,34 @@ public class Reso360Plugin : BasePlugin
             Log.LogError("[Reso360Spout2] Failed to create shared memory: " + e);
         }
 
-        CAMERA_SLOT_NAME = Config.Bind("General", "CAMERA_SLOT_NAME", "#Camera",
+        const string gs = "General";
+        CAMERA_SLOT_NAME = Config.Bind(gs, "CAMERA_SLOT_NAME", "#Camera",
             "カメラ位置として参照するワールドスロット名");
+
+        const string rs = "Renderer";
+        R_SPOUT_ENABLE     = Config.Bind(rs, "SPOUT_ENABLE",     true,                                    "Spout 出力を有効にする");
+        R_PROJECTION_TYPE  = Config.Bind(rs, "PROJECTION_TYPE",  RendererProjectionType.Equirectangular_180, "投影方式");
+        R_CUBEMAP_SIZE     = Config.Bind(rs, "CUBEMAP_SIZE",     RendererCubeMapSize.High,                "キューブマップサイズ");
+        R_OUTPUT_WIDTH     = Config.Bind(rs, "OUTPUT_WIDTH",     6144,                                    "出力幅 (px)");
+        R_OUTPUT_HEIGHT    = Config.Bind(rs, "OUTPUT_HEIGHT",    3072,                                    "出力高 (px)");
+        R_RENDER_IN_STEREO = Config.Bind(rs, "RENDER_IN_STEREO", true,                                    "ステレオレンダリング");
+        R_NEAR_CLIP        = Config.Bind(rs, "NEAR_CLIP",        0.01f,                                   "ニアクリップ");
+        R_FAR_CLIP         = Config.Bind(rs, "FAR_CLIP",         3000f,                                   "ファークリップ");
+        R_HIDE_LOCAL       = Config.Bind(rs, "HIDE_LOCAL",       true,                                    "ローカルユーザーを非表示");
+
+        // 設定変更時に共有メモリへ書き出す
+        R_SPOUT_ENABLE    .SettingChanged += (_, _) => WriteRendererConfig();
+        R_PROJECTION_TYPE .SettingChanged += (_, _) => WriteRendererConfig();
+        R_CUBEMAP_SIZE    .SettingChanged += (_, _) => WriteRendererConfig();
+        R_OUTPUT_WIDTH    .SettingChanged += (_, _) => WriteRendererConfig();
+        R_OUTPUT_HEIGHT   .SettingChanged += (_, _) => WriteRendererConfig();
+        R_RENDER_IN_STEREO.SettingChanged += (_, _) => WriteRendererConfig();
+        R_NEAR_CLIP       .SettingChanged += (_, _) => WriteRendererConfig();
+        R_FAR_CLIP        .SettingChanged += (_, _) => WriteRendererConfig();
+        R_HIDE_LOCAL      .SettingChanged += (_, _) => WriteRendererConfig();
+
+        // 初期値を共有メモリに書き込む（Renderer 起動前でも問題ない）
+        WriteRendererConfig();
 
         var harmony = new Harmony("dev.kokoa.Reso360Spout2");
         harmony.PatchAll();
@@ -75,6 +129,28 @@ public class Reso360Plugin : BasePlugin
         _sharedMemView.Write( 0, px); _sharedMemView.Write( 4, py); _sharedMemView.Write( 8, pz);
         _sharedMemView.Write(12, rx); _sharedMemView.Write(16, ry); _sharedMemView.Write(20, rz); _sharedMemView.Write(24, rw);
         _sharedMemView.Write(28, sx); _sharedMemView.Write(32, sy); _sharedMemView.Write(36, sz);
+    }
+
+    /// <summary>レンダラー設定を共有メモリに書き込み、バージョンをインクリメントして Renderer に通知する</summary>
+    internal static void WriteRendererConfig()
+    {
+        if (_sharedMemView == null) return;
+
+        _sharedMemView.Write(44, R_SPOUT_ENABLE    .Value ? 1 : 0);
+        _sharedMemView.Write(48, (int)R_PROJECTION_TYPE.Value);
+        _sharedMemView.Write(52, (int)R_CUBEMAP_SIZE   .Value);
+        _sharedMemView.Write(56, R_OUTPUT_WIDTH    .Value);
+        _sharedMemView.Write(60, R_OUTPUT_HEIGHT   .Value);
+        _sharedMemView.Write(64, R_RENDER_IN_STEREO.Value ? 1 : 0);
+        _sharedMemView.Write(68, R_NEAR_CLIP       .Value);
+        _sharedMemView.Write(72, R_FAR_CLIP        .Value);
+        _sharedMemView.Write(76, R_HIDE_LOCAL      .Value ? 1 : 0);
+
+        // バージョンをインクリメント（Renderer がポーリングで変化を検出する）
+        int version = _sharedMemView.ReadInt32(40);
+        _sharedMemView.Write(40, version + 1);
+
+        Log.LogDebug($"[Reso360Spout2] Renderer config written (version={version + 1})");
     }
 
     // ---- Harmony パッチ -------------------------------------------------------

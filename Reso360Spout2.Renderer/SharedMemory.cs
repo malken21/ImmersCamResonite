@@ -5,16 +5,27 @@ using UnityEngine;
 namespace Reso360Spout2Renderer
 {
     /// <summary>
-    /// ホストプロセスが書き込んだカメラ状態を共有メモリから読み取る。
-    /// 構造: 10 floats (40 bytes)
-    ///   [0-11]  position (x, y, z)
-    ///   [12-27] rotation (x, y, z, w)
-    ///   [28-39] scale    (x, y, z)
+    /// ホストプロセスが書き込んだカメラ状態とレンダラー設定を共有メモリから読み取る。
+    ///
+    /// 構造: 80 bytes
+    ///   [0-11]  position (x, y, z)           float × 3
+    ///   [12-27] rotation (x, y, z, w)        float × 4
+    ///   [28-39] scale    (x, y, z)           float × 3
+    ///   [40-43] config version (int)
+    ///   [44-47] SPOUT_ENABLE     (int 0/1)
+    ///   [48-51] PROJECTION_TYPE  (int)
+    ///   [52-55] CUBEMAP_SIZE     (int)
+    ///   [56-59] OUTPUT_WIDTH     (int)
+    ///   [60-63] OUTPUT_HEIGHT    (int)
+    ///   [64-67] RENDER_IN_STEREO (int 0/1)
+    ///   [68-71] NEAR_CLIP        (float)
+    ///   [72-75] FAR_CLIP         (float)
+    ///   [76-79] HIDE_LOCAL       (int 0/1)
     /// </summary>
     public class SharedMemoryReader : IDisposable
     {
         public const string MAP_NAME = "Reso360Spout2_Camera";
-        private const int   MAP_SIZE = 40;
+        private const int   MAP_SIZE = 80;
 
         private MemoryMappedFile?         _mmf;
         private MemoryMappedViewAccessor? _view;
@@ -36,6 +47,8 @@ namespace Reso360Spout2Renderer
                 return false;
             }
         }
+
+        // ---- カメラ状態 -------------------------------------------------------
 
         public Vector3 ReadPosition()
         {
@@ -70,6 +83,27 @@ namespace Reso360Spout2Renderer
             return s.sqrMagnitude < 1e-6f ? Vector3.one : s;
         }
 
+        // ---- レンダラー設定 ---------------------------------------------------
+
+        public int ReadConfigVersion() => _view?.ReadInt32(40) ?? 0;
+
+        public RendererConfig ReadConfig()
+        {
+            if (_view == null) return RendererConfig.Default;
+            return new RendererConfig
+            {
+                SpoutEnable    = _view.ReadInt32(44) != 0,
+                ProjectionType = (ProjectionType)_view.ReadInt32(48),
+                CubemapSize    = _view.ReadInt32(52),
+                OutputWidth    = _view.ReadInt32(56),
+                OutputHeight   = _view.ReadInt32(60),
+                RenderInStereo = _view.ReadInt32(64) != 0,
+                NearClip       = _view.ReadSingle(68),
+                FarClip        = _view.ReadSingle(72),
+                HideLocal      = _view.ReadInt32(76) != 0,
+            };
+        }
+
         public void Dispose()
         {
             if (_disposed) return;
@@ -77,5 +111,32 @@ namespace Reso360Spout2Renderer
             _view?.Dispose();
             _mmf?.Dispose();
         }
+    }
+
+    /// <summary>共有メモリから読み取ったレンダラー設定のスナップショット</summary>
+    public struct RendererConfig
+    {
+        public bool          SpoutEnable;
+        public ProjectionType ProjectionType;
+        public int           CubemapSize;
+        public int           OutputWidth;
+        public int           OutputHeight;
+        public bool          RenderInStereo;
+        public float         NearClip;
+        public float         FarClip;
+        public bool          HideLocal;
+
+        public static readonly RendererConfig Default = new RendererConfig
+        {
+            SpoutEnable    = true,
+            ProjectionType = ProjectionType.Equirectangular_180,
+            CubemapSize    = 2048,
+            OutputWidth    = 6144,
+            OutputHeight   = 3072,
+            RenderInStereo = true,
+            NearClip       = 0.01f,
+            FarClip        = 3000f,
+            HideLocal      = true,
+        };
     }
 }
