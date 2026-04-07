@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <AssemblyName>Reso360Spout2.Patcher</AssemblyName>
+    <RootNamespace>Reso360Spout2Patcher</RootNamespace>
+    <OutputType>Library</OutputType>
+    <Nullable>enable</Nullable>
+    <LangVersion>9</LangVersion>
+    <!-- BepInEx 5 プリローダー / パッチャー (Renderer プロセス用) -->
+    <GaleProfileDir>$(APPDATA)\com.kesomannen.gale\resonite\profiles\360Spout\</GaleProfileDir>
+    <RendererBepInExDir>$(GaleProfileDir)Renderer\BepInEx\</RendererBepInExDir>
+    <!-- パッチャーは plugins ではなく patchers に置く -->
+    <PatcherTargetDir>$(RendererBepInExDir)patchers\Reso360Spout2.Patcher\</PatcherTargetDir>
+    <GamePath Condition="Exists('$(MSBuildProgramFiles32)\Steam\steamapps\common\Resonite\')">$(MSBuildProgramFiles32)\Steam\steamapps\common\Resonite\</GamePath>
+  </PropertyGroup>
+
+  <!-- BepInEx 5 core (プリローダー API) -->
+  <ItemGroup>
+    <Reference Include="BepInEx">
+      <HintPath>$(RendererBepInExDir)core\BepInEx.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- コピー対象の KlakSpout_send.dll をプロジェクトに含める -->
+  <ItemGroup>
+    <None Include="..\Reso360Spout2\KlakSpout_send.dll" Link="KlakSpout_send.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <!-- Post-build: パッチャーフォルダにコピー -->
+  <Target Name="PostBuild" AfterTargets="PostBuildEvent" Condition="Exists('$(RendererBepInExDir)')">
+    <MakeDir Directories="$(PatcherTargetDir)" />
+    <ItemGroup>
+      <PatcherFiles Include="$(TargetPath)" />
+      <PatcherFiles Include="$(TargetDir)$(TargetName).pdb" Condition="Exists('$(TargetDir)$(TargetName).pdb')" />
+      <PatcherFiles Include="$(TargetDir)KlakSpout_send.dll" Condition="Exists('$(TargetDir)KlakSpout_send.dll')" />
+    </ItemGroup>
+    <Copy SourceFiles="@(PatcherFiles)" DestinationFolder="$(PatcherTargetDir)" />
+    <Message Text="Copied patcher to $(PatcherTargetDir)" Importance="high" />
+  </Target>
+
+</Project>

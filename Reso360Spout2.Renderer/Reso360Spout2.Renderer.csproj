@@ -1,0 +1,89 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <AssemblyName>Reso360Spout2.Renderer</AssemblyName>
+    <RootNamespace>Reso360Spout2Renderer</RootNamespace>
+    <OutputType>Library</OutputType>
+    <Nullable>enable</Nullable>
+    <LangVersion>9</LangVersion><!-- BepInEx 5 プロファイル (Renderer プロセス) -->
+    <GaleProfileDir>$(APPDATA)\com.kesomannen.gale\resonite\profiles\360Spout\</GaleProfileDir>
+    <RendererBepInExDir>$(GaleProfileDir)Renderer\BepInEx\</RendererBepInExDir>
+    <RendererPluginTargetDir>$(RendererBepInExDir)plugins\Reso360Spout2.Renderer\</RendererPluginTargetDir>
+    <!-- Unity DLL パス -->
+    <GamePath Condition="Exists('$(MSBuildProgramFiles32)\Steam\steamapps\common\Resonite\')">$(MSBuildProgramFiles32)\Steam\steamapps\common\Resonite\</GamePath>
+    <RendererManagedDir>$(GamePath)Renderer\Renderite.Renderer_Data\Managed\</RendererManagedDir>
+  </PropertyGroup>
+
+  <!-- BepInEx 5 core (レンダラープロセス用) -->
+  <ItemGroup>
+    <Reference Include="BepInEx">
+      <HintPath>$(RendererBepInExDir)core\BepInEx.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(RendererBepInExDir)core\0Harmony20.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- UnityEngine (レンダラープロセスで利用可能) -->
+  <ItemGroup>
+    <Reference Include="UnityEngine">
+      <HintPath>$(RendererManagedDir)UnityEngine.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(RendererManagedDir)UnityEngine.CoreModule.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="UnityEngine.AssetBundleModule">
+      <HintPath>$(RendererManagedDir)UnityEngine.AssetBundleModule.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="UnityEngine.ImageConversionModule">
+      <HintPath>$(RendererManagedDir)UnityEngine.ImageConversionModule.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- KlakSpout DLL とシェーダーアセットバンドルをプロジェクトに含める -->
+  <ItemGroup>
+    <None Include="..\Reso360Spout2\KlakSpout_send.dll" Link="KlakSpout_send.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\Reso360Spout2\KlakSpout.dll" Link="KlakSpout.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\Reso360Spout2\cubeto360" Link="cubeto360">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <!-- Post-build: レンダラー BepInEx プラグインフォルダにコピー -->
+  <Target Name="PostBuild" AfterTargets="PostBuildEvent" Condition="Exists('$(RendererBepInExDir)')">
+    <MakeDir Directories="$(RendererPluginTargetDir)" />
+    <ItemGroup>
+      <PluginFiles Include="$(TargetPath)" />
+      <PluginFiles Include="$(TargetDir)$(TargetName).pdb" Condition="Exists('$(TargetDir)$(TargetName).pdb')" />
+      <PluginFiles Include="$(TargetDir)KlakSpout.dll" Condition="Exists('$(TargetDir)KlakSpout.dll')" />
+      <PluginFiles Include="$(TargetDir)KlakSpout_send.dll" Condition="Exists('$(TargetDir)KlakSpout_send.dll')" />
+      <PluginFiles Include="$(TargetDir)cubeto360" Condition="Exists('$(TargetDir)cubeto360')" />
+    </ItemGroup>
+    <Copy SourceFiles="@(PluginFiles)" DestinationFolder="$(RendererPluginTargetDir)" />
+    <Message Text="Copied renderer plugin to $(RendererPluginTargetDir)" Importance="high" />
+  </Target>
+
+  <!-- Post-build: KlakSpout_send.dll を Unity ネイティブプラグインフォルダにコピー -->
+  <!-- Unity はここにある DLL を起動時にロードし UnityPluginLoad を呼び出して D3D11 デバイスを登録する -->
+  <PropertyGroup>
+    <UnityNativePluginDir>$(GamePath)Renderer\Renderite.Renderer_Data\Plugins\x86_64\</UnityNativePluginDir>
+  </PropertyGroup>
+  <Target Name="CopyNativePlugin" AfterTargets="PostBuildEvent" Condition="Exists('$(UnityNativePluginDir)')">
+    <Copy SourceFiles="$(TargetDir)KlakSpout_send.dll"
+          DestinationFolder="$(UnityNativePluginDir)"
+          SkipUnchangedFiles="true" />
+    <Message Text="Copied KlakSpout_send.dll to Unity native plugins: $(UnityNativePluginDir)" Importance="high" />
+  </Target>
+
+</Project>
