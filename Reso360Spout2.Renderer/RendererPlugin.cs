@@ -102,6 +102,8 @@ namespace Reso360Spout2Renderer
             CameraComponent!.nearClipPlane = RendererPlugin.NEAR_CLIP.Value;
             CameraComponent.farClipPlane   = RendererPlugin.FAR_CLIP.Value;
             CameraComponent.cullingMask   &= ~(1 << 28);
+            CameraComponent.cullingMask &= ~(1 << 29);
+            CameraComponent.cullingMask &= ~(1 << 31);
 
             // Spout の InitSpout() は Update() で遅延呼び出しする
             // (Start() 時点では D3D デバイスが Spout に未登録のため NULL device クラッシュが発生する)
@@ -228,7 +230,6 @@ namespace Reso360Spout2Renderer
             Graphics.Blit(SourceTexture, tempRt, new Vector2(1f, -1f), new Vector2(0f, 1f));
             Graphics.CopyTexture(tempRt, SharedTexture);
             RenderTexture.ReleaseTemporary(tempRt);
-            Debug.Log("[Reso360Spout2] Sended frame to Spout.");
         }
 
         public void ApplyHideLocal()
