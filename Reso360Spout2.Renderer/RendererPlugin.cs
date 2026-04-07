@@ -26,7 +26,8 @@ namespace Reso360Spout2Renderer
         public static ConfigEntry<bool>          RENDER_IN_STEREO = null!;
         public static ConfigEntry<float>         NEAR_CLIP        = null!;
         public static ConfigEntry<float>         FAR_CLIP         = null!;
-        public static ConfigEntry<bool>          HIDE_LOCAL       = null!;
+        public static ConfigEntry<bool>          HIDE_LOCAL        = null!;
+        public static ConfigEntry<float>         STEREO_SEPARATION = null!;
 
         public enum CubeMapSize { Low = 512, Mid = 1024, High = 2048, Ultra = 3072 }
 
@@ -50,7 +51,8 @@ namespace Reso360Spout2Renderer
             RENDER_IN_STEREO = Config.Bind(s, "RENDER_IN_STEREO", true,                        "ステレオレンダリング");
             NEAR_CLIP        = Config.Bind(s, "NEAR_CLIP",        0.01f,                       "ニアクリップ");
             FAR_CLIP         = Config.Bind(s, "FAR_CLIP",         3000f,                       "ファークリップ");
-            HIDE_LOCAL       = Config.Bind(s, "HIDE_LOCAL",       true,                        "ローカルユーザーを非表示");
+            HIDE_LOCAL        = Config.Bind(s, "HIDE_LOCAL",        true,   "ローカルユーザーを非表示");
+            STEREO_SEPARATION = Config.Bind(s, "STEREO_SEPARATION", 0.065f, "ステレオ間距離 (IPD, m)");
 
             // UnityEntry を持つ GameObject を生成
             _entryGo = new GameObject("___Reso360Spout2");
@@ -64,8 +66,9 @@ namespace Reso360Spout2Renderer
             FAR_CLIP.SettingChanged         += (_, _2) => { if (_unityEntry?.CameraComponent != null) _unityEntry.CameraComponent.farClipPlane  = FAR_CLIP.Value; };
             CUBEMAP_SIZE.SettingChanged     += (_, _2) => { if (_unityEntry?.cubeComponent   != null) _unityEntry.cubeComponent.CubemapSize     = (int)CUBEMAP_SIZE.Value; };
             PROJECTION_TYPE.SettingChanged  += (_, _2) => { if (_unityEntry?.cubeComponent   != null) _unityEntry.cubeComponent.ProjectionType  = PROJECTION_TYPE.Value; };
-            RENDER_IN_STEREO.SettingChanged += (_, _2) => { if (_unityEntry?.cubeComponent   != null) _unityEntry.cubeComponent.RenderInStereo  = RENDER_IN_STEREO.Value; };
-            SPOUT_ENABLE.SettingChanged     += (_, _2) => _unityEntry?.UpdateSpoutState();
+            RENDER_IN_STEREO .SettingChanged += (_, _2) => { if (_unityEntry?.cubeComponent   != null) _unityEntry.cubeComponent.RenderInStereo  = RENDER_IN_STEREO.Value; };
+            STEREO_SEPARATION.SettingChanged += (_, _2) => { if (_unityEntry?.cubeComponent   != null) _unityEntry.cubeComponent.StereoSeparation = STEREO_SEPARATION.Value; };
+            SPOUT_ENABLE     .SettingChanged += (_, _2) => _unityEntry?.UpdateSpoutState();
 
             Logger.LogInfo("Reso360Spout2 Renderer plugin loaded.");
         }
@@ -100,10 +103,6 @@ namespace Reso360Spout2Renderer
 
             // 初期設定を適用 (SettingChanged を経由しない直接適用 — D3D 未準備のため Spout 系は後回し)
             ApplyInitialConfig();
-
-            CameraComponent!.cullingMask &= ~(1 << 28);
-            CameraComponent.cullingMask  &= ~(1 << 29);
-            CameraComponent.cullingMask  &= ~(1 << 31);
 
             StartCoroutine(PostRenderLoop());
 
@@ -183,14 +182,16 @@ namespace Reso360Spout2Renderer
             RendererPlugin.RENDER_IN_STEREO.Value = cfg.RenderInStereo;
             RendererPlugin.NEAR_CLIP       .Value = cfg.NearClip;
             RendererPlugin.FAR_CLIP        .Value = cfg.FarClip;
-            RendererPlugin.HIDE_LOCAL      .Value = cfg.HideLocal;
+            RendererPlugin.HIDE_LOCAL       .Value = cfg.HideLocal;
+            RendererPlugin.STEREO_SEPARATION.Value = cfg.StereoSeparation;
 
             // Spout 系を除くコンポーネントへ直接適用 (SettingChanged は既に上で発火しているが念のため)
-            cubeComponent!.CubemapSize   = cfg.CubemapSize;
-            cubeComponent.ProjectionType = cfg.ProjectionType;
-            cubeComponent.RenderInStereo = cfg.RenderInStereo;
-            CameraComponent!.nearClipPlane = cfg.NearClip;
-            CameraComponent.farClipPlane   = cfg.FarClip;
+            cubeComponent!.CubemapSize      = cfg.CubemapSize;
+            cubeComponent.ProjectionType    = cfg.ProjectionType;
+            cubeComponent.RenderInStereo    = cfg.RenderInStereo;
+            cubeComponent.StereoSeparation  = cfg.StereoSeparation;
+            CameraComponent!.nearClipPlane  = cfg.NearClip;
+            CameraComponent.farClipPlane    = cfg.FarClip;
             ApplyHideLocal(cfg.HideLocal);
         }
 
@@ -210,7 +211,8 @@ namespace Reso360Spout2Renderer
             RendererPlugin.RENDER_IN_STEREO.Value = cfg.RenderInStereo;
             RendererPlugin.NEAR_CLIP       .Value = cfg.NearClip;
             RendererPlugin.FAR_CLIP        .Value = cfg.FarClip;
-            RendererPlugin.HIDE_LOCAL      .Value = cfg.HideLocal;
+            RendererPlugin.HIDE_LOCAL       .Value = cfg.HideLocal;
+            RendererPlugin.STEREO_SEPARATION.Value = cfg.StereoSeparation;
         }
 
         IEnumerator PostRenderLoop()

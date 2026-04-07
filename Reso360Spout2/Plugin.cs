@@ -35,29 +35,31 @@ public class Reso360Plugin : BasePlugin
     public static ConfigEntry<float>          R_NEAR_CLIP        = null!;
     public static ConfigEntry<float>          R_FAR_CLIP         = null!;
     public static ConfigEntry<bool>           R_HIDE_LOCAL       = null!;
+    public static ConfigEntry<float>          R_STEREO_SEPARATION = null!;
 
     // Renderer 側の enum と値が一致するよう同じ数値を使う
     public enum RendererProjectionType { Equirectangular_360 = 0, Equirectangular_180 = 1, FishEye_Circumference = 2, FishEye_Diagonal = 3 }
     public enum RendererCubeMapSize    { Low = 512, Mid = 1024, High = 2048, Ultra = 3072 }
 
     // ---- 共有メモリ -----------------------------------------------------------
-    // カメラ状態 (40 bytes) + コンフィグチャンネル (40 bytes) = 80 bytes
+    // カメラ状態 (40 bytes) + コンフィグチャンネル (44 bytes) = 84 bytes
     //
     // [0-11]  position (x, y, z)           ← float × 3
     // [12-27] rotation (x, y, z, w)        ← float × 4
     // [28-39] scale    (x, y, z)           ← float × 3
     // [40-43] config version (int)         ← インクリメントで Renderer に変更を通知
-    // [44-47] SPOUT_ENABLE     (int 0/1)
-    // [48-51] PROJECTION_TYPE  (int)
-    // [52-55] CUBEMAP_SIZE     (int)
-    // [56-59] OUTPUT_WIDTH     (int)
-    // [60-63] OUTPUT_HEIGHT    (int)
-    // [64-67] RENDER_IN_STEREO (int 0/1)
-    // [68-71] NEAR_CLIP        (float)
-    // [72-75] FAR_CLIP         (float)
-    // [76-79] HIDE_LOCAL       (int 0/1)
+    // [44-47] SPOUT_ENABLE      (int 0/1)
+    // [48-51] PROJECTION_TYPE   (int)
+    // [52-55] CUBEMAP_SIZE      (int)
+    // [56-59] OUTPUT_WIDTH      (int)
+    // [60-63] OUTPUT_HEIGHT     (int)
+    // [64-67] RENDER_IN_STEREO  (int 0/1)
+    // [68-71] NEAR_CLIP         (float)
+    // [72-75] FAR_CLIP          (float)
+    // [76-79] HIDE_LOCAL        (int 0/1)
+    // [80-83] STEREO_SEPARATION (float)
     public const string SHARED_MEM_NAME = "Reso360Spout2_Camera";
-    private const int   SHARED_MEM_SIZE = 80;
+    private const int   SHARED_MEM_SIZE = 84;
 
     private static MemoryMappedFile?         _sharedMem;
     private static MemoryMappedViewAccessor? _sharedMemView;
@@ -92,6 +94,7 @@ public class Reso360Plugin : BasePlugin
         R_NEAR_CLIP        = Config.Bind(rs, "NEAR_CLIP",        0.01f,                                   "ニアクリップ");
         R_FAR_CLIP         = Config.Bind(rs, "FAR_CLIP",         3000f,                                   "ファークリップ");
         R_HIDE_LOCAL       = Config.Bind(rs, "HIDE_LOCAL",       true,                                    "ローカルユーザーを非表示");
+        R_STEREO_SEPARATION = Config.Bind(rs, "STEREO_SEPARATION", 0.065f,                                 "ステレオ間距離 (IPD, m)");
 
         // 設定変更時に共有メモリへ書き出す
         R_SPOUT_ENABLE    .SettingChanged += (_, _) => WriteRendererConfig();
@@ -102,7 +105,8 @@ public class Reso360Plugin : BasePlugin
         R_RENDER_IN_STEREO.SettingChanged += (_, _) => WriteRendererConfig();
         R_NEAR_CLIP       .SettingChanged += (_, _) => WriteRendererConfig();
         R_FAR_CLIP        .SettingChanged += (_, _) => WriteRendererConfig();
-        R_HIDE_LOCAL      .SettingChanged += (_, _) => WriteRendererConfig();
+        R_HIDE_LOCAL       .SettingChanged += (_, _) => WriteRendererConfig();
+        R_STEREO_SEPARATION.SettingChanged += (_, _) => WriteRendererConfig();
 
         // 初期値を共有メモリに書き込む（Renderer 起動前でも問題ない）
         WriteRendererConfig();
@@ -144,7 +148,8 @@ public class Reso360Plugin : BasePlugin
         _sharedMemView.Write(64, R_RENDER_IN_STEREO.Value ? 1 : 0);
         _sharedMemView.Write(68, R_NEAR_CLIP       .Value);
         _sharedMemView.Write(72, R_FAR_CLIP        .Value);
-        _sharedMemView.Write(76, R_HIDE_LOCAL      .Value ? 1 : 0);
+        _sharedMemView.Write(76, R_HIDE_LOCAL       .Value ? 1 : 0);
+        _sharedMemView.Write(80, R_STEREO_SEPARATION.Value);
 
         // バージョンをインクリメント（Renderer がポーリングで変化を検出する）
         int version = _sharedMemView.ReadInt32(40);

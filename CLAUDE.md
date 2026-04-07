@@ -151,6 +151,78 @@ target = "Renderer/BepInEx/plugins/Reso360Spout2.Renderer/"
 
 ---
 
+## ゲーム内設定 UI (BepisModSettings) との連携
+
+### 前提: 2プロセス問題
+
+BepisModSettings は **Host プロセス** (net10.0) で動く。Renderer プラグインは **Renderer プロセス** (net472 / Unity) で動く。別プロセスなので、BepisModSettings は Renderer の BepInEx ConfigFile に直接アクセスできない。
+
+### 解決策: 共有メモリ経由のコンフィグチャンネル
+
+カメラ状態用の共有メモリ末尾にコンフィグチャンネルを追加する。
+
+```
+共有メモリ "Reso360Spout2_Camera" のレイアウト (現在 84 bytes):
+
+[0-39]  カメラ状態 (position / rotation / scale)
+[40-43] config version (int) ← Host がインクリメント、Renderer がポーリング
+[44-47] SPOUT_ENABLE      (int 0/1)
+[48-51] PROJECTION_TYPE   (int)
+[52-55] CUBEMAP_SIZE      (int)
+[56-59] OUTPUT_WIDTH      (int)
+[60-63] OUTPUT_HEIGHT     (int)
+[64-67] RENDER_IN_STEREO  (int 0/1)
+[68-71] NEAR_CLIP         (float)
+[72-75] FAR_CLIP          (float)
+[76-79] HIDE_LOCAL        (int 0/1)
+[80-83] STEREO_SEPARATION (float)
+```
+
+### Host 側 (Plugin.cs) の実装
+
+- Renderer 設定と同名の `ConfigEntry` を `"Renderer"` セクションに追加 → BepisModSettings が自動で UI に表示する
+- 各 `SettingChanged` で `WriteRendererConfig()` を呼び出し、値を共有メモリに書いてからバージョンをインクリメント
+
+```csharp
+R_NEAR_CLIP.SettingChanged += (_, _) => WriteRendererConfig();
+
+internal static void WriteRendererConfig()
+{
+    _sharedMemView.Write(68, R_NEAR_CLIP.Value);
+    // ... 他の値 ...
+    int version = _sharedMemView.ReadInt32(40);
+    _sharedMemView.Write(40, version + 1);  // Renderer に変更を通知
+}
+```
+
+### Renderer 側 (RendererPlugin.cs / SharedMemory.cs) の実装
+
+- `SharedMemoryReader.ReadConfigVersion()` でバージョンを読み、前回値と異なれば `ReadConfig()` で設定を取得
+- `LateUpdate()` 内でポーリング（カメラ状態の読み取りと同じタイミング）
+- D3D デバイス準備完了後（`_initDelayFrames` カウントダウン後）のみ反映する。それ以前は `ApplyInitialConfig()` で直接適用
+
+```csharp
+// LateUpdate 内 (D3D 準備完了後のみ)
+int ver = _sharedMem.ReadConfigVersion();
+if (ver != _lastConfigVersion && ver != 0)
+{
+    _lastConfigVersion = ver;
+    ApplyConfigFromHost(_sharedMem.ReadConfig());  // ConfigEntry.Value 経由 → SettingChanged 発火
+}
+```
+
+### 設定項目の追加手順
+
+1. `Plugin.cs`: `SHARED_MEM_SIZE` を +4、コメントのレイアウト図を更新、`ConfigEntry` 追加、`SettingChanged` 登録、`WriteRendererConfig()` に書き込み行を追加
+2. `SharedMemory.cs`: `MAP_SIZE` を +4、コメントのレイアウト図を更新、`RendererConfig` 構造体にフィールド追加、`ReadConfig()` に読み取り行を追加、`Default` を更新
+3. `RendererPlugin.cs`: `ConfigEntry` 追加、`SettingChanged` でコンポーネントへの適用を登録、`ApplyInitialConfig()` と `ApplyConfigFromHost()` に代入行を追加
+
+### enum の扱い
+
+Host 側の enum（`RendererProjectionType`, `RendererCubeMapSize`）と Renderer 側の enum（`ProjectionType`, `CubeMapSize`）は数値が一致している必要がある。共有メモリでは `(int)` にキャストして int として送受信する。
+
+---
+
 ## ResoniteSpout を参考にする際の注意
 
 `../ResoniteSpout/` に参照実装がある。ただし以下の点に注意:

@@ -18,14 +18,15 @@ namespace Reso360Spout2Renderer
     ///   [56-59] OUTPUT_WIDTH     (int)
     ///   [60-63] OUTPUT_HEIGHT    (int)
     ///   [64-67] RENDER_IN_STEREO (int 0/1)
-    ///   [68-71] NEAR_CLIP        (float)
-    ///   [72-75] FAR_CLIP         (float)
-    ///   [76-79] HIDE_LOCAL       (int 0/1)
+    ///   [68-71] NEAR_CLIP         (float)
+    ///   [72-75] FAR_CLIP          (float)
+    ///   [76-79] HIDE_LOCAL        (int 0/1)
+    ///   [80-83] STEREO_SEPARATION (float)
     /// </summary>
     public class SharedMemoryReader : IDisposable
     {
         public const string MAP_NAME = "Reso360Spout2_Camera";
-        private const int   MAP_SIZE = 80;
+        private const int   MAP_SIZE = 84;
 
         private MemoryMappedFile?         _mmf;
         private MemoryMappedViewAccessor? _view;
@@ -100,7 +101,8 @@ namespace Reso360Spout2Renderer
                 RenderInStereo = _view.ReadInt32(64) != 0,
                 NearClip       = _view.ReadSingle(68),
                 FarClip        = _view.ReadSingle(72),
-                HideLocal      = _view.ReadInt32(76) != 0,
+                HideLocal        = _view.ReadInt32(76) != 0,
+                StereoSeparation = _view.ReadSingle(80),
             };
         }
 
@@ -125,18 +127,20 @@ namespace Reso360Spout2Renderer
         public float         NearClip;
         public float         FarClip;
         public bool          HideLocal;
+        public float         StereoSeparation;
 
         public static readonly RendererConfig Default = new RendererConfig
         {
-            SpoutEnable    = true,
-            ProjectionType = ProjectionType.Equirectangular_180,
-            CubemapSize    = 2048,
-            OutputWidth    = 6144,
-            OutputHeight   = 3072,
-            RenderInStereo = true,
-            NearClip       = 0.01f,
-            FarClip        = 3000f,
-            HideLocal      = true,
+            SpoutEnable      = true,
+            ProjectionType   = ProjectionType.Equirectangular_180,
+            CubemapSize      = 2048,
+            OutputWidth      = 6144,
+            OutputHeight     = 3072,
+            RenderInStereo   = true,
+            NearClip         = 0.01f,
+            FarClip          = 3000f,
+            HideLocal        = true,
+            StereoSeparation = 0.065f,
         };
     }
 }
