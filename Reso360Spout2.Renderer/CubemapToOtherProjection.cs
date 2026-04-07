@@ -47,18 +47,7 @@ namespace Reso360Spout2Renderer
                 _cubemapRenderer = new CubemapRenderer(CubemapSize, CubemapRendererShader);
         }
 
-        void LateUpdate()
-        {
-            if (RenderTarget != null) InternalUpdate();
-        }
-
-        IEnumerator InternalUpdateAsync()
-        {
-            yield return new WaitForEndOfFrame();
-            InternalUpdate();
-        }
-
-        void InternalUpdate()
+        public void Rendering()
         {
             if (RenderTarget == null) return;
 

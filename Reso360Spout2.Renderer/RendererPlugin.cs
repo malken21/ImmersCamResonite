@@ -2,6 +2,7 @@ using BepInEx;
 using BepInEx.Configuration;
 using System;
 using System.IO;
+using System.Collections;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -104,12 +105,15 @@ namespace Reso360Spout2Renderer
             CameraComponent.cullingMask   &= ~(1 << 28);
             CameraComponent.cullingMask &= ~(1 << 29);
             CameraComponent.cullingMask &= ~(1 << 31);
+            
+
+            StartCoroutine(PostRenderLoop());
 
             // Spout の InitSpout() は Update() で遅延呼び出しする
             // (Start() 時点では D3D デバイスが Spout に未登録のため NULL device クラッシュが発生する)
         }
 
-        void Update()
+        void LateUpdate()
         {
             try
             {
@@ -129,19 +133,10 @@ namespace Reso360Spout2Renderer
                 }
 
                 // ホストプロセスからカメラ状態を受け取る
-                transform.position   = _sharedMem.ReadPosition();
-                transform.rotation   = _sharedMem.ReadRotation();
+                transform.position = _sharedMem.ReadPosition();
+                transform.rotation = _sharedMem.ReadRotation();
                 transform.localScale = _sharedMem.ReadScale();
 
-                if (SourceTexture != null)
-                {
-                    SendToSpout();
-                }
-                else
-                {
-                    Debug.Log("[Reso360Spout2] Waiting for SourceTexture to be created...");
-                }
-                    
             }
             catch (Exception e)
             {
@@ -150,6 +145,24 @@ namespace Reso360Spout2Renderer
         }
 
         void OnDestroy() => _sharedMem.Dispose();
+
+        IEnumerator PostRenderLoop()
+        {
+            while (true)
+            {
+                yield return new WaitForEndOfFrame(); // 全てのカメラの描画が終わるのを待つ
+
+                if (SourceTexture != null && Plugin != IntPtr.Zero)
+                {
+                    cubeComponent!.Rendering();
+                    SendToSpout();
+                }
+                else
+                {
+                    Debug.Log("[Reso360Spout2] Waiting for SourceTexture to be created...");
+                }
+            }
+        }
 
         private void LoadShaders()
         {
