@@ -1,0 +1,11 @@
+{
+  "name": "ResoniteImmersCam",
+  "version_number": "1.0.1",
+  "website_url": "https://github.com/orange3134/ImmersCamResonite",
+  "description": "A MOD for recording VR180 video in Resonite.",
+  "dependencies": [
+    "ResoniteModding-BepisLoader-1.5.1",
+    "ResoniteModding-BepisResoniteWrapper-1.0.2",
+    "ResoniteModding-RenderiteHook-1.1.1"
+  ]
+}
