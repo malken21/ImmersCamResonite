@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.0.1
 
 Fixes the MOD not working at all on a fresh install of current Resonite (verified on `2026.9.18.82`),
 makes every setting the README documents actually work, and adds 8K output.
